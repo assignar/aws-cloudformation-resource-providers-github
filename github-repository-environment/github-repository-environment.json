@@ -1,0 +1,83 @@
+{
+    "typeName": "GitHub::Repository::Environment",
+    "description": "An Environment for a GitHub Repository.",
+    "sourceUrl": "https://github.com/assignar/aws-cloudformation-resource-providers-github.git",
+    "properties": {
+        "AccessToken": {
+            "description": "GitHub Access Token",
+            "type": "string",
+            "pattern": "^[0-9a-zA-Z-_]*$" 
+        },
+        "Owner": {
+            "description": "The name of the repository owner.",
+            "type": "string",
+            "pattern": "^[0-9a-zA-Z-]*$",
+            "maxLength": 39
+        },
+        "Repository": {
+            "description": "The name of the repository.",
+            "type": "string",
+            "pattern": "^[0-9a-zA-Z-]*$",
+            "maxLength": 100
+        },
+        "EnvironmentName": {
+            "description": "The name of the environment.",
+            "type": "string",
+            "pattern": "^[0-9a-zA-Z-]*$",
+            "maxLength": 255
+        },
+        "WaitTimer": {
+            "description": "The amount of time to delay a job after the job is initially triggered in minutes.",
+            "type": "integer",
+            "default": 0,
+            "maximum": 43200
+        },
+        "Reviewers": {
+            "description": "The people or teams that may review jobs that reference the environment. Maximum six.",
+            "type": "array",
+            "items": {
+                "type": "string",
+                "maxLength": 255
+            }
+        },
+        "Id": { "description": "GitHub environment ID", "type": "integer" },
+        "Url": { "description": "GitHub environment URL", "type": "string" }
+    },
+    "additionalProperties": false,
+    "required": [
+        "AccessToken",
+        "Owner",
+        "Repository",
+        "EnvironmentName"
+    ],
+    "createOnlyProperties": [ "/properties/Owner", "/properties/Repository", "/properties/EnvironmentName" ],
+    "readOnlyProperties": [ "/properties/Id", "/properties/Url" ],
+    "primaryIdentifier": [ "/properties/Id" ],
+    "handlers": {
+        "create": {
+            "permissions": [
+                "github:CreateRepositoryEnvironment"
+            ]
+        },
+        "read": {
+            "permissions": [
+                "github:ReadRepositoryEnvironment"
+            ]
+        },
+        "update": {
+            "permissions": [
+                "github:UpdateRepositoryEnvironment"
+            ]
+        },
+        "delete": {
+            "permissions": [
+                "github:DeleteRepositoryEnvironment"
+            ]
+        },
+        "list": {
+            "permissions": [
+                "github:ListRepositoryEnvironment"
+            ]
+        }
+    }
+}
