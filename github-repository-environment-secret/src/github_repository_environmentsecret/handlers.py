@@ -1,24 +1,25 @@
 import logging
 import json
 import urllib3
+from base64 import b64encode
+from nacl import encoding, public
 
-from typing import Any, MutableMapping, Optional
+from typing import Any, MutableMapping, Optional, Tuple, Dict
+
 from cloudformation_cli_python_lib import (
     Action,
     HandlerErrorCode,
     OperationStatus,
     ProgressEvent,
     Resource,
-    SessionProxy,
+    SessionProxy
 )
-
 
 from .models import ResourceHandlerRequest, ResourceModel
 
-
 # Use this logger to forward log messages to CloudWatch Logs.
 LOG = logging.getLogger(__name__)
-TYPE_NAME = "GitHub::Repository::Environment"
+TYPE_NAME = "GitHub::Repository::EnvironmentSecret"
 GITHUB_BASE = "https://api.github.com"
 
 resource = Resource(TYPE_NAME, ResourceModel)
@@ -26,17 +27,64 @@ test_entrypoint = resource.test_entrypoint
 
 http = urllib3.PoolManager()
 
-def read(model: ResourceModel) -> ProgressEvent:
+def read_repository(model: ResourceModel) -> Tuple[ProgressEvent, Optional[Dict]]:
     access_token = model.AccessToken
     owner = model.Owner
     repo = model.Repository
-    environment_name = model.EnvironmentName
 
     try:
         response = http.request(
             "GET",
-            f"{GITHUB_BASE}/repos/{owner}/{repo}/environments/{environment_name}", 
+            f"{GITHUB_BASE}/repos/{owner}/{repo}", 
             headers={ "Authorization": f"token {access_token}" }
+        )
+    except urllib3.exceptions.HTTPError as e:
+        failure = ProgressEvent(
+            status=OperationStatus.FAILED,
+            errorCode=HandlerErrorCode.InternalFailure,
+            message=e.message,
+            resourceModel=model,
+        )
+        return (failure, None)
+
+
+    if response.status != 200:
+        failure = ProgressEvent(
+            status=OperationStatus.FAILED,
+            errorCode=HandlerErrorCode.NotFound,
+            message="Repository not Found"
+        )
+        return (failure, None)
+
+    success = ProgressEvent(
+        status=OperationStatus.SUCCESS,
+        resourceModel=model
+    )
+    return (success, response)
+
+def read(model: ResourceModel) -> ProgressEvent:
+    #
+    # Step 1: Fetch repository ID
+    #
+    event, response = read_repository(model)
+    if event.status != OperationStatus.SUCCESS:
+        return event
+
+    data = json.loads(response.data.decode("utf-8"))
+    repository_id = data.get("id")
+
+    access_token = model.AccessToken
+    environment_name = model.EnvironmentName
+    secret_name = model.SecretName
+
+    #
+    # Step 2: Read secret
+    #
+    try:
+        response = http.request(
+            "GET",
+            f"{GITHUB_BASE}/repositories/{repository_id}/environments/{environment_name}/secrets/{secret_name}", 
+            headers={ "Authorization": f"token {access_token}" },
         )
     except urllib3.exceptions.HTTPError as e:
         return ProgressEvent(
@@ -47,9 +95,6 @@ def read(model: ResourceModel) -> ProgressEvent:
         )   
 
     if response.status == 200:
-        data = json.loads(response.data.decode("utf-8"))
-        model.Id = data.get("id")
-        model.Url = data.get("url")
         return ProgressEvent(
             status=OperationStatus.SUCCESS,
             resourceModel=model
@@ -61,14 +106,26 @@ def read(model: ResourceModel) -> ProgressEvent:
     ) 
 
 def list_(model: ResourceModel) -> ProgressEvent:
-    access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
+    #
+    # Step 1: Fetch repository ID
+    #
+    event, response = read_repository(model)
+    if event.status != OperationStatus.SUCCESS:
+        return event
 
+    data = json.loads(response.data.decode("utf-8"))
+    repository_id = data.get("id")
+
+    access_token = model.AccessToken
+    environment_name = model.EnvironmentName
+
+    #
+    # Step 2: List Secrets
+    #
     try:
         response = http.request(
             "GET",
-            f"{GITHUB_BASE}/repos/{owner}/{repo}/environments", 
+            f"{GITHUB_BASE}/repositories/{repository_id}/environments/{environment_name}/secrets", 
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
@@ -81,19 +138,17 @@ def list_(model: ResourceModel) -> ProgressEvent:
 
     if response.status == 200:
         data = json.loads(response.data.decode("utf-8"))
-        environments = data.get("environments", [])
+        environments = data.get("secrets", [])
         return ProgressEvent(
             status=OperationStatus.SUCCESS,
             resourceModels=[
                 ResourceModel(
-                    Id=environment.get("id"),
                     AccessToken=model.AccessToken,
                     Owner=model.Owner,
                     Repository=model.Repository,
-                    EnvironmentName=environment.get("name"),
-                    WaitTimer=None,
-                    Reviewers=None,
-                    Url=data.get("url")
+                    EnvironmentName=model.EnvironmentName,
+                    SecretName=data.get("secret_name"),
+                    SecretValue=None
                 ) 
             for environment in environments]
         )
@@ -104,16 +159,66 @@ def list_(model: ResourceModel) -> ProgressEvent:
     )
 
 def create_update(model: ResourceModel) -> ProgressEvent:
-    access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
-    environment_name = model.EnvironmentName
+    #
+    # Step 1: Fetch repository ID
+    #
+    event, response = read_repository(model)
+    if event.status != OperationStatus.SUCCESS:
+        return event
 
+    data = json.loads(response.data.decode("utf-8"))
+    repository_id = data.get("id")
+
+    access_token = model.AccessToken
+    environment_name = model.EnvironmentName
+    secret_name = model.SecretName
+    secret_value = model.SecretValue
+
+    #
+    # Step 2: Fetch Environment Public Key
+    #
+    try:
+        response = http.request(
+            "GET",
+            f"{GITHUB_BASE}/repositories/{repository_id}/environments/{environment_name}/secrets/public-key", 
+            headers={ "Authorization": f"token {access_token}" }
+        )
+    except urllib3.exceptions.HTTPError as e:
+        return ProgressEvent(
+            status=OperationStatus.FAILED,
+            errorCode=HandlerErrorCode.InternalFailure,
+            message=e.message,
+            resourceModel=model,
+        )  
+
+    if response.status != 200:
+        return ProgressEvent(
+            status=OperationStatus.FAILED,
+            errorCode=HandlerErrorCode.NotFound,
+            message="Public Key not Found"
+        )
+
+    data = json.loads(response.data.decode("utf-8"))
+    key_id = data.get("key_id")
+    public_key = data.get("key")
+
+    public_key = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
+    sealed_box = public.SealedBox(public_key)
+    encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
+    encrypted_value = b64encode(encrypted).decode("utf-8")
+
+    #
+    # Step 3: Create / Update Secret
+    #
     try:
         response = http.request(
             "PUT",
-            f"{GITHUB_BASE}/repos/{owner}/{repo}/environments/{environment_name}", 
-            headers={ "Authorization": f"token {access_token}" }
+            f"{GITHUB_BASE}/repositories/{repository_id}/environments/{environment_name}/secrets/{secret_name}", 
+            headers={ "Authorization": f"token {access_token}" },
+            body=json.dumps({
+                "encrypted_value": encrypted_value,
+                "key_id": key_id
+            })
         )
     except urllib3.exceptions.HTTPError as e:
         return ProgressEvent(
@@ -123,6 +228,8 @@ def create_update(model: ResourceModel) -> ProgressEvent:
             resourceModel=model,
         )   
 
+    del model.SecretValue
+
     if response.status == 422:
         return ProgressEvent(
             status=OperationStatus.FAILED,
@@ -131,10 +238,7 @@ def create_update(model: ResourceModel) -> ProgressEvent:
             resourceModel=model,
         )   
       
-    if response.status == 200:
-        data = json.loads(response.data.decode("utf-8"))
-        model.Id = data.get("id")
-        model.Url = data.get("url")
+    if response.status == 201 or response.status == 204:
         return ProgressEvent(
             status=OperationStatus.SUCCESS,
             resourceModel=model
@@ -148,15 +252,24 @@ def create_update(model: ResourceModel) -> ProgressEvent:
     ) 
 
 def delete(model: ResourceModel) -> ProgressEvent:
+    #
+    # Step 1: Fetch repository ID
+    #
+    event, response = read_repository(model)
+    if event.status != OperationStatus.SUCCESS:
+        return event
+
+    data = json.loads(response.data.decode("utf-8"))
+    repository_id = data.get("id")
+
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
     environment_name = model.EnvironmentName
+    secret_name = model.SecretName
 
     try:
         response = http.request(
             "DELETE",
-            f"{GITHUB_BASE}/repos/{owner}/{repo}/environments/{environment_name}", 
+            f"{GITHUB_BASE}/repositories/{repository_id}/environments/{environment_name}/secrets/{secret_name}", 
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
@@ -190,7 +303,7 @@ def create_handler(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.AlreadyExists
         )
-    
+
     return create_update(model)
 
 @resource.handler(Action.UPDATE)
@@ -199,7 +312,19 @@ def update_handler(
     request: ResourceHandlerRequest,
     callback_context: MutableMapping[str, Any],
 ) -> ProgressEvent:
+    previous_model = request.previousResourceState
     model = request.desiredResourceState
+
+    if (
+        model.Owner != previous_model.Owner and
+        model.Repository != previous_model.Repository and
+        model.EnvironmentName != previous_model.EnvironmentName
+    ):
+        return ProgressEvent(
+            status=OperationStatus.FAILED,
+            errorCode=HandlerErrorCode.NotFound,
+            message="Create only value should not be changed"
+        )
 
     read_progress_event: ProgressEvent = read(model)
     if read_progress_event.status != OperationStatus.SUCCESS:
@@ -209,13 +334,6 @@ def update_handler(
             message="Not Found."
         )
 
-    if read_progress_event.resourceModel.Id != model.Id:
-        return ProgressEvent(
-            status=OperationStatus.FAILED,
-            errorCode=HandlerErrorCode.NotFound,
-            message="Id did not match."
-        )    
-    
     return create_update(model)
 
 
