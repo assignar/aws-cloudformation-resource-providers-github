@@ -1,6 +1,8 @@
 import logging
 import json
 import urllib3
+import urllib.parse
+
 from base64 import b64encode
 from nacl import encoding, public
 
@@ -29,8 +31,8 @@ http = urllib3.PoolManager()
 
 def read_repository(model: ResourceModel) -> Tuple[ProgressEvent, Optional[Dict]]:
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
+    owner = urllib.parse.quote_plus(model.Owner)
+    repo = urllib.parse.quote_plus(model.Repository)
 
     try:
         response = http.request(
@@ -39,6 +41,7 @@ def read_repository(model: ResourceModel) -> Tuple[ProgressEvent, Optional[Dict]
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         failure = ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -74,8 +77,8 @@ def read(model: ResourceModel) -> ProgressEvent:
     repository_id = data.get("id")
 
     access_token = model.AccessToken
-    environment_name = model.EnvironmentName
-    secret_name = model.SecretName
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
+    secret_name = urllib.parse.quote_plus(model.SecretName)
 
     #
     # Step 2: Read secret
@@ -87,6 +90,7 @@ def read(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" },
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -117,7 +121,7 @@ def list_(model: ResourceModel) -> ProgressEvent:
     repository_id = data.get("id")
 
     access_token = model.AccessToken
-    environment_name = model.EnvironmentName
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
 
     #
     # Step 2: List Secrets
@@ -129,6 +133,7 @@ def list_(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -170,8 +175,8 @@ def create_update(model: ResourceModel) -> ProgressEvent:
     repository_id = data.get("id")
 
     access_token = model.AccessToken
-    environment_name = model.EnvironmentName
-    secret_name = model.SecretName
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
+    secret_name = urllib.parse.quote_plus(model.SecretName)
     secret_value = model.SecretValue
 
     #
@@ -184,6 +189,7 @@ def create_update(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -221,6 +227,7 @@ def create_update(model: ResourceModel) -> ProgressEvent:
             })
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -263,8 +270,8 @@ def delete(model: ResourceModel) -> ProgressEvent:
     repository_id = data.get("id")
 
     access_token = model.AccessToken
-    environment_name = model.EnvironmentName
-    secret_name = model.SecretName
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
+    secret_name = urllib.parse.quote_plus(model.SecretName)
 
     try:
         response = http.request(
@@ -273,6 +280,7 @@ def delete(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,

@@ -1,6 +1,7 @@
 import logging
 import json
 import urllib3
+import urllib.parse
 
 from typing import Any, MutableMapping, Optional
 from cloudformation_cli_python_lib import (
@@ -28,9 +29,9 @@ http = urllib3.PoolManager()
 
 def read(model: ResourceModel) -> ProgressEvent:
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
-    environment_name = model.EnvironmentName
+    owner = urllib.parse.quote_plus(model.Owner)
+    repo = urllib.parse.quote_plus(model.Repository)
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
 
     try:
         response = http.request(
@@ -39,6 +40,7 @@ def read(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -62,8 +64,8 @@ def read(model: ResourceModel) -> ProgressEvent:
 
 def list_(model: ResourceModel) -> ProgressEvent:
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
+    owner = urllib.parse.quote_plus(model.Owner)
+    repo = urllib.parse.quote_plus(model.Repository)
 
     try:
         response = http.request(
@@ -72,6 +74,7 @@ def list_(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -105,9 +108,9 @@ def list_(model: ResourceModel) -> ProgressEvent:
 
 def create_update(model: ResourceModel) -> ProgressEvent:
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
-    environment_name = model.EnvironmentName
+    owner = urllib.parse.quote_plus(model.Owner)
+    repo = urllib.parse.quote_plus(model.Repository)
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
 
     try:
         response = http.request(
@@ -116,6 +119,7 @@ def create_update(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
@@ -149,9 +153,9 @@ def create_update(model: ResourceModel) -> ProgressEvent:
 
 def delete(model: ResourceModel) -> ProgressEvent:
     access_token = model.AccessToken
-    owner = model.Owner
-    repo = model.Repository
-    environment_name = model.EnvironmentName
+    owner = urllib.parse.quote_plus(model.Owner)
+    repo = urllib.parse.quote_plus(model.Repository)
+    environment_name = urllib.parse.quote_plus(model.EnvironmentName)
 
     try:
         response = http.request(
@@ -160,6 +164,7 @@ def delete(model: ResourceModel) -> ProgressEvent:
             headers={ "Authorization": f"token {access_token}" }
         )
     except urllib3.exceptions.HTTPError as e:
+        LOG.exception(exc_info=e)
         return ProgressEvent(
             status=OperationStatus.FAILED,
             errorCode=HandlerErrorCode.InternalFailure,
